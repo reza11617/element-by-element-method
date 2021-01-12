@@ -1,0 +1,79 @@
+#+TITLE: Element by element method using preconditioned conjugate gradient method
+#+SETUPFILE: ~/Org/config/setup.config
+#+PROPERTY: header-args :exports both :resutls output
+
+* References
+In the book [[file:/mnt/windowsD/OneDrive/OneDrive - Dalhousie University/book/programming the finite element method by I. M. Smith, D. V. Griffiths, L. Margetts.pdf][programming the finite element method]] it is mentioned to refer to the references for more information regarding element-by-element method.
+ - Zienkiewicz et al. (2005)
+ - Strang and Fix (2008)
+ - Cook et al. (2002)
+ - Rao (2010)
+** Zienkiewicz et al. (2005)
+Zienkiewicz OC, Taylor RL and Zhu JZ 2005 The Finite Element Method , Vol. 1, 6th edn. McGraw-Hill,
+London.
+
+** Strang and Fix (2008)
+Strang G and Fix GJ 2008 An Analysis of the Finite Element Method . Wellesley-Cambridge, Wellesley, MA.
+
+** Cool et al. (2002)
+Cook RD, Malkus DS, Plesha ME and Witt RJ 2002 Concepts and Applications of Finite Element Analysis,
+4th edn. John Wiley & Sons, Chichester
+
+** Rao (2010)
+Rao SS 2010 [[file:/mnt/windowsD/OneDrive/OneDrive - Dalhousie University/book/The finite element method in engineering by Rao, Singiresu S (z-lib.org).pdf][The Finite Element Method in Engineering]], 5th edn. Butterworth-Heinemann, Woburn, MA.
+Schlichting H 1960 Boundary Layer Theory. McGraw-Hill, London.
+
+* Cantilever example:
+Traditional finite element method using two beam elements to solve a cantilever problem.
+
+Imagine we have cantilever with =EI = 1.0, L = 1.0=, and load at tip equal to 10.0
+#+begin_src jupyter-python :session py
+EI = 1.0
+P = 10.0
+L = 1.0
+#+end_src
+
+#+RESULTS:
+
+Then the exact tip deflection would be:
+#+begin_src jupyter-python :session py
+print("The exact displacement is: {:.2f}".format(P*L**3/(3*EI)))
+#+end_src
+
+#+RESULTS:
+: The exact displacement is: 3.33
+
+Using traditional finite element the tip deflection is
+#+begin_src jupyter-python :session py
+import numpy as np
+
+# returns stiffness martix
+def SM(EI, L):
+    return (2*EI/L**3) * np.array([[6, 3*L, -6, 3*L],[3*L, 2*L*L, -3*L, L*L],[-6, -3*L, 6, -3*L],[3*L, L*L, -3*L, 2*L*L]])
+def FEM_classic(elements, EI, L, P):
+    nodes = elements + 1
+    fix = 2
+    K = np.zeros((nodes*2,nodes*2))
+    for i in range(elements):
+        K[i*2:i*2+4,i*2:i*2+4] += SM(EI,L/elements)
+    # load vector
+    F = np.zeros(nodes*2-fix)
+    F[-2] = P
+    # assembly of k
+    K = np.delete(K,[0,1],0)
+    K = np.delete(K,[0,1],1)
+    # solve
+    return (np.linalg.solve(K, F))[-2]
+
+# parameters
+elements = 2
+print("The FEM displacement is: {:.2f}".format(FEM_classic(elements, EI, L, P)))
+#+end_src
+
+#+RESULTS:
+: The FEM displacement is: 3.33
+
+The next step is to solve using conjugate gradient. This can be found in page 69 of the book.
+#+begin_src jupyter-python :session py
+
+#+end_src
