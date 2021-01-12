@@ -23,7 +23,7 @@ Cook RD, Malkus DS, Plesha ME and Witt RJ 2002 Concepts and Applications of Fini
 Rao SS 2010 [[file:/mnt/windowsD/OneDrive/OneDrive - Dalhousie University/book/The finite element method in engineering by Rao, Singiresu S (z-lib.org).pdf][The Finite Element Method in Engineering]], 5th edn. Butterworth-Heinemann, Woburn, MA.
 Schlichting H 1960 Boundary Layer Theory. McGraw-Hill, London.
 
-* Cantilever example:
+* Cantilever example
 Traditional finite element method using two beam elements to solve a cantilever problem.
 
 Imagine we have cantilever with =EI = 1.0, L = 1.0=, and load at tip equal to 10.0
@@ -50,30 +50,158 @@ import numpy as np
 # returns stiffness martix
 def SM(EI, L):
     return (2*EI/L**3) * np.array([[6, 3*L, -6, 3*L],[3*L, 2*L*L, -3*L, L*L],[-6, -3*L, 6, -3*L],[3*L, L*L, -3*L, 2*L*L]])
-def FEM_classic(elements, EI, L, P):
+
+def global_stiffness(elements, EI, L):
     nodes = elements + 1
-    fix = 2
     K = np.zeros((nodes*2,nodes*2))
     for i in range(elements):
         K[i*2:i*2+4,i*2:i*2+4] += SM(EI,L/elements)
-    # load vector
-    F = np.zeros(nodes*2-fix)
-    F[-2] = P
     # assembly of k
     K = np.delete(K,[0,1],0)
     K = np.delete(K,[0,1],1)
+    return K
+
+def global_load(elements, P):
+    fix = 2
+    nodes = elements + 1
+    # load vector
+    F = np.zeros(nodes*2-fix)
+    F[-2] = P
+    return F
+
+def FEM_classic(elements, EI, L, P):
+    K = global_stiffness(elements, EI, L)
+    F = global_load(elements, P)
     # solve
-    return (np.linalg.solve(K, F))[-2]
+    return np.linalg.solve(K, F)
 
 # parameters
 elements = 2
-print("The FEM displacement is: {:.2f}".format(FEM_classic(elements, EI, L, P)))
+print("The FEM displacement is: {:.2f}".format((FEM_classic(elements, EI, L, P))[-2]))
 #+end_src
 
 #+RESULTS:
 : The FEM displacement is: 3.33
-
-The next step is to solve using conjugate gradient. This can be found in page 69 of the book.
+** Use conjugate gradient to solve the linear system of equations
+The next step is to solve the global stiffness matrix using conjugate gradient. This can be found in page 69 of the book.
 #+begin_src jupyter-python :session py
+def conjugate_gradient(K, F, tol = 0.0001):
+    U0 = np.array([2, 2, 1, 1])
+    diff = 1
+    R0 = F - K @ U0
+    P0 = R0
+    while np.abs(diff > tol):
+        Q0 = K @ P0
+        alpha0 = (np.transpose(R0) @ R0)/(np.transpose(P0) @ Q0)
+        U1 = U0 + alpha0 * P0
+        R1 = R0 - alpha0 * Q0
+        betha0 = (np.transpose(R1) @ R1)/(np.transpose(R0) @ R0)
+        P1 = R1 + betha0 * P0
+        P0 = P1
+        R0 = R1
+        diff = max(U1 - U0)
+        U0 = U1
+    return U1
+
+def FEM_CG(elements, EI, L, P):
+    K = global_stiffness(elements, EI, L)
+    F = global_load(elements, P)
+    return conjugate_gradient(K, F)
+
+print("Correct result:")
+print(FEM_classic(elements, EI, L, P))
+U1 = FEM_CG(elements, EI, L, P)
+print("Converged result:")
+print(U1)
+#+end_src
+
+#+RESULTS:
+: Correct result:
+: [1.04166667 3.75       3.33333333 5.        ]
+: Converged result:
+: [1.04166667 3.75       3.33333333 5.        ]
+
+** Use conjugate gradient for a assembly free analysis
+The next step is to try to do it element by element.
+#+begin_src jupyter-python :session py
+class element:
+    def __init__(self, EI = 1, L = 1, dofs = [], fix = [], force = []):
+      self.dofs = dofs
+      self.fix = fix
+      self.EI = EI
+      self.L = L
+      self.force = force
+
+    def SM(self):
+        k = (2*self.EI/self.L**3) * np.array([[6, 3*self.L, -6, 3*self.L],
+                                              [3*self.L, 2*self.L*self.L, -3*self.L, self.L*self.L],
+                                              [-6, -3*self.L, 6, -3*self.L],
+                                              [3*self.L, self.L*self.L, -3*self.L, 2*self.L*self.L]])
+        k = np.delete(k,self.fix,0)
+        k = np.delete(k,self.fix,1)
+        return k
+
+    def f(self):
+       f = np.zeros(len(self.dofs) - len(self.fix))
+       for load in self.force:
+           f[self.dofs.index(load[0])] = load[1]
+       return f
+
+def assembly(vectors, fix = 2):
+    result = np.zeros(len(vectors)*2)
+    result[0] = vectors[0][0]
+    result[1] = vectors[0][1]
+    for i in range(1,len(vectors)):
+        result[i*2-fix:i*2+4-fix] += vectors[i][:]
+    return result
+
+def conjugate_gradient(ele, tol = 0.0001):
+    diff = 1
+    U0 = np.array([2,2,1,1])
+    list_U0 = [U0[0:2], U0]
+    list_R0 = []
+    for i in range(len(ele)):
+        list_R0.append(ele[i].f() - ele[i].SM() @ list_U0[i])
+    R0 = assembly(list_R0)
+    P0 = R0
+    while np.abs(diff) > tol:
+        list_P0 = [P0[0:2],P0]
+        list_Q0 = []
+        for i in range(len(ele)):
+            list_Q0.append(ele[i].SM() @ list_P0[i])
+        Q0 = assembly(list_Q0)
+        alpha0 = (np.transpose(R0) @ R0)/(np.transpose(P0) @ Q0)
+        U1 = U0 + alpha0 * P0
+        R1 = R0 - alpha0 * Q0
+        betha0 = (np.transpose(R1) @ R1)/(np.transpose(R0) @ R0)
+        P1 = R1 + betha0 * P0
+        P0 = P1
+        R0 = R1
+        diff = max(U1 - U0)
+        U0 = U1
+    return U1
+
+def element_by_element(elements, EI, L, P):
+    e = []
+    e.append(element(EI, L/elements, [0,1,2,3], fix = [0,1]))
+    e.append(element(EI, L/elements, [2,3,4,5], force = [(4,P), (5,0)]))
+    return conjugate_gradient(e)
+U = element_by_element(elements, EI, L, P)
+print("Conjugate gradiant element by element method:")
+print(U)
+
 
 #+end_src
+
+#+RESULTS:
+: Conjugate gradiant element by element method:
+: [1.04166667 3.75       3.33333333 5.        ]
+
+We successfully used element by element method to analyze the cantilever beam. It is obvious that it is going to benefit DoD design using sparse matrices. If you want to do it in =C++= make sure you have reliable sparse matrix library handy.
+
+NOTE: the program can be written in a much readable way.
+
+* TODO items
+- [ ] Try preconditioned
+- [ ] Try Sparse matrix
+- [ ] Try to design a DoD C++ library
